@@ -1,9 +1,14 @@
 [package]
-name = "grid"
+name = "gridstore"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/DoctorWhoof/gridstore"
+documentation = "https://docs.rs/gridstore/latest/"
+categories = ["no-std"]
 
 [dependencies]
+libm = "0.2.11"
 
 [dev-dependencies]
 rand = "0.8.5"

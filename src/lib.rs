@@ -1,7 +1,12 @@
-// #![no_std]
+//! A Rectangular grid of non-overlapping rects containing a single generic item each.
+//! Its dimensions can be centered around (0.0, 0.0) or start at the lower-left corner.
+//! Once created, allows retrieving its contents via physical, f32 coordinates
+//! or directly from colums/row indices.
+
+#![no_std]
 
 #[derive(Debug)]
-pub struct Grid<V> {
+pub struct Grid<const COLS: usize, const ROWS: usize, V> {
     // Dimensions
     width: f32,
     height: f32,
@@ -11,44 +16,38 @@ pub struct Grid<V> {
     offset_x: f32,
     offset_y: f32,
     // Storage
-    data: Vec<Vec<V>>,
+    data: [[V; ROWS]; COLS],
 }
 
 // Standard Error message helper
-#[macro_export]
 macro_rules! err {
     ($msg:expr) => {
         concat!("\x1b[31m", "Grid Error: ", $msg, "\x1b[0m")
     };
 }
 
-/// A Rectangular grid of non-overlapping rects containing a single item each. Can be centered
-/// around (0.0, 0.0) or start at the lower-left corner.
-impl<V> Grid<V>
+// Default implementation always needs "width" and "height" provided.
+impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V>
 where
     V: Default,
 {
-    pub fn new(cols: usize, rows: usize, width: f32, height: f32, centered: bool) -> Self {
-        Self::new_with(cols, rows, width, height, centered, || Default::default())
+    pub fn new(width: f32, height: f32, centered: bool) -> Self {
+        Self::new_with(width, height, centered, || Default::default())
     }
 }
 
-impl<V> Grid<V> {
-    pub fn new_with<F>(
-        cols: usize,
-        rows: usize,
-        width: f32,
-        height: f32,
-        centered: bool,
-        mut func: F,
-    ) -> Self
+// Unconstrained implementation.
+impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
+    /// Returns a Grid pre-filled with the result of function "func"
+    pub fn new_with<F>(width: f32, height: f32, centered: bool, mut func: F) -> Self
     where
         F: FnMut() -> V,
     {
+        use core::array::from_fn;
         assert!(width >= 0.0, err!("size width must be positive"));
         assert!(height >= 0.0, err!("size height must be positive"));
-        let cell_width = width / cols as f32;
-        let cell_height = height / rows as f32;
+        let cell_width = width / COLS as f32;
+        let cell_height = height / ROWS as f32;
 
         Self {
             width,
@@ -57,85 +56,101 @@ impl<V> Grid<V> {
             cell_height,
             offset_x: if centered { width / 2.0 } else { 0.0 },
             offset_y: if centered { height / 2.0 } else { 0.0 },
-            data: (0..cols)
-                .map(|_x| (0..rows).map(|_y| func()).collect())
-                .collect(),
+            data: from_fn(|_col| from_fn(|_row| func())),
         }
     }
 
+    /// Physical width.
     pub fn width(&self) -> f32 {
         self.width
     }
 
+    /// Physical height.
     pub fn height(&self) -> f32 {
         self.height
     }
 
+    /// Physical width of each cell.
     pub fn cell_width(&self) -> f32 {
         self.cell_width
     }
 
+    /// Physical height of each cell.
     pub fn cell_height(&self) -> f32 {
         self.cell_height
     }
 
+    /// Total number of columns.
     pub fn columns(&self) -> usize {
-        self.data.len()
+        COLS
     }
 
+    /// Total number of rows.
     pub fn rows(&self) -> usize {
-        if self.data.is_empty() {
-            return 0;
-        }
-        self.data[0].len()
+        ROWS
     }
 
+    /// The left-most edge occupied by the Grid. This is the Y origin if grid is not centered.
     pub fn left(&self) -> f32 {
         -self.offset_x
     }
 
+    /// The right-most edge occupied by the Grid.
     pub fn right(&self) -> f32 {
         self.width - self.offset_x
     }
 
+    /// The bottom-most edge occupied by the Grid. WARNING, coordinates are Y up
+    /// (positive values go up), so this is the Y origin if the grid is not centered.
     pub fn bottom(&self) -> f32 {
         -self.offset_y
     }
 
+    /// The top-most edge occupied by the Grid. WARNING, coordinates are Y up (positive values go up).
     pub fn top(&self) -> f32 {
         self.height - self.offset_x
     }
 
     /// Returns an optional mutable reference to the content of a cell containing the
     /// provided coordinates, if any.
-    pub fn get_coords_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
+    pub fn get_cell_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
         let x = x + self.offset_x;
-        let y = y + self.offset_y;
-        #[cfg(debug_assertions)]
-        {
-            assert!(x >= 0.0, err!("Coordinate X can't be negative"));
-            assert!(y >= 0.0, err!("Coordinate Y can't be negative"));
-        }
         if x < 0.0 {
             return None;
         }
+        let y = y + self.offset_y;
         if y < 0.0 {
             return None;
         }
-        let col = (x / self.cell_width).floor() as usize;
-        let row = (y / self.cell_height).floor() as usize;
-        self.get_cell_mut(col, row)
+        let col = libm::floorf(x / self.cell_width) as usize;
+        let row = libm::floorf(y / self.cell_height) as usize;
+        self.get_cell_by_indices(col, row)
     }
 
-    /// Returns an optional mutable reference to the content of a cell containing the
+    /// Returns an optional mutable reference to the content of a cell in the
     /// provided coordinates, if any.
-    pub fn get_cell_mut(&mut self, col: usize, row: usize) -> Option<&mut V> {
+    pub fn get_cell_by_indices(&mut self, col: usize, row: usize) -> Option<&mut V> {
         let col = self.data.get_mut(col)?;
         let cell = col.get_mut(row)?;
         Some(cell)
     }
 
-    /// Allows a function to modify the contents of all cells with the same function.
+    // /// Allows a single function to modify the contents of all cells.
+    // /// The function will take a mutable reference to the cell contents, the current
+    // /// Column index and the current Row index.
+    // pub fn modify_all<F>(&mut self, mut func: F)
+    // where
+    //     F: FnMut(&mut V, usize, usize),
+    // {
+    //     for (col_index, col) in &mut self.data.iter_mut().enumerate() {
+    //         for (row_index, cell) in col.iter_mut().enumerate() {
+    //             func(cell, col_index, row_index)
+    //         }
+    //     }
+    // }
+
+    /// Allows a single function to modify the contents of all cells.
+    /// The function will take a mutable reference to the cell contents
     pub fn modify_all<F>(&mut self, mut func: F)
     where
         F: FnMut(&mut V),
@@ -147,9 +162,11 @@ impl<V> Grid<V> {
         }
     }
 
+
     /// Allows a function to modify the contents of any cell that overlaps a rectangle.
     /// Rectangles are only allowed to be as big as the cell size. Bigger rects will
-    /// fail an assert in Debug builds, and do nothing in release builds.
+    /// fail an assert in Debug builds, and do nothing in release builds. This may change to a result
+    /// in the future.
     pub fn modify_in_rect<F>(&mut self, top: f32, left: f32, bottom: f32, right: f32, mut func: F)
     where
         F: FnMut(&mut V),
@@ -163,7 +180,7 @@ impl<V> Grid<V> {
         if !self.validate_rect(top, left, bottom, right) {
             return;
         };
-        // Get columns and rows
+        // Get columns and ROWS
         let col_1 = (left / self.cell_width) as usize;
         let col_2 = (right / self.cell_width) as usize;
         let row_1 = (top / self.cell_height) as usize;
@@ -186,9 +203,8 @@ impl<V> Grid<V> {
         func(value);
     }
 
-    /// Returns a reference to the undelying data. Be careful! Changing the length
-    /// of the vectors will break things!
-    pub fn raw_data(&mut self) -> &mut Vec<Vec<V>> {
+    /// Returns a reference to the underlying data. Be careful!
+    pub fn raw_data(&mut self) -> &mut [[V; ROWS]; COLS] {
         &mut self.data
     }
 
@@ -196,7 +212,8 @@ impl<V> Grid<V> {
     fn validate_rect(&self, top: f32, left: f32, bottom: f32, right: f32) -> bool {
         let w = right - left;
         let h = top - bottom;
-        // In Debug build an invalid rect is an error
+        // In Debug build an invalid rect is an error.
+        // TODO: May be removed later, always return result instead
         #[cfg(debug_assertions)]
         {
             assert!(w >= 0.0, err!("rect width must be positive"));
@@ -225,14 +242,18 @@ impl<V> Grid<V> {
 mod test {
     use crate::Grid;
     use rand::Rng;
+
+    extern crate alloc;
+    use alloc::vec::Vec;
+
     #[test]
     fn grid_basic() {
-        let mut grid: Grid<Vec<(f32, f32)>> = Grid::new(10, 10, 100.0, 100.0, false);
+        let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, false);
         let mut rng = rand::thread_rng();
         for _n in 0..100 {
             let x = rng.gen_range(0.0..100.0);
             let y = rng.gen_range(0.0..100.0);
-            if let Some(container) = grid.get_coords_mut(x, y) {
+            if let Some(container) = grid.get_cell_mut(x, y) {
                 container.push((x, y));
             };
         }
@@ -253,12 +274,12 @@ mod test {
 
     #[test]
     fn grid_negative_values() {
-        let mut grid: Grid<Vec<(f32, f32)>> = Grid::new(10, 10, 100.0, 100.0, true);
+        let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, true);
         let mut rng = rand::thread_rng();
         for _n in 0..100 {
             let x = rng.gen_range(grid.left()..grid.right());
             let y = rng.gen_range(grid.bottom()..grid.top());
-            if let Some(container) = grid.get_coords_mut(x, y) {
+            if let Some(container) = grid.get_cell_mut(x, y) {
                 container.push((x, y));
             };
         }
@@ -268,7 +289,7 @@ mod test {
                 if cell.is_empty() {
                     continue;
                 }
-                println!("{},{} -> {:.1?}", i_x, i_y, cell);
+                // println!("{},{} -> {:.1?}", i_x, i_y, cell);
                 for value in cell {
                     let col = ((value.0 + grid.offset_x) / grid.cell_width).floor() as usize;
                     let row = ((value.1 + grid.offset_y) / grid.cell_height).floor() as usize;
