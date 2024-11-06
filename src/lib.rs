@@ -111,9 +111,10 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         self.height - self.offset_x
     }
 
-    /// Returns an optional mutable reference to the content of a cell containing the
+
+    /// Returns an optional reference to the content of a cell containing the
     /// provided coordinates, if any.
-    pub fn get_cell_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
+    pub fn get_cell(&self, x: f32, y: f32) -> Option<&V> {
         let x = x + self.offset_x;
         if x < 0.0 {
             return None;
@@ -127,9 +128,33 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         self.get_cell_by_indices(col, row)
     }
 
+    /// Returns an optional mutable reference to the content of a cell containing the
+    /// provided coordinates, if any.
+    pub fn get_cell_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
+        let x = x + self.offset_x;
+        if x < 0.0 {
+            return None;
+        }
+        let y = y + self.offset_y;
+        if y < 0.0 {
+            return None;
+        }
+        let col = libm::floorf(x / self.cell_width) as usize;
+        let row = libm::floorf(y / self.cell_height) as usize;
+        self.get_cell_by_indices_mut(col, row)
+    }
+
+    /// Returns an optional reference to the content of a cell in the
+    /// provided coordinates, if any.
+    pub fn get_cell_by_indices(&self, col: usize, row: usize) -> Option<&V> {
+        let col = self.data.get(col)?;
+        let cell = col.get(row)?;
+        Some(cell)
+    }
+
     /// Returns an optional mutable reference to the content of a cell in the
     /// provided coordinates, if any.
-    pub fn get_cell_by_indices(&mut self, col: usize, row: usize) -> Option<&mut V> {
+    pub fn get_cell_by_indices_mut(&mut self, col: usize, row: usize) -> Option<&mut V> {
         let col = self.data.get_mut(col)?;
         let cell = col.get_mut(row)?;
         Some(cell)
