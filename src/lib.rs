@@ -44,8 +44,8 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         F: FnMut() -> V,
     {
         use core::array::from_fn;
-        assert!(width >= 0.0, err!("size width must be positive"));
-        assert!(height >= 0.0, err!("size height must be positive"));
+        assert!(width >= 0.0, err!("Width must be positive"));
+        assert!(height >= 0.0, err!("Height must be positive"));
         let cell_width = width / COLS as f32;
         let cell_height = height / ROWS as f32;
 
@@ -161,7 +161,6 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
             }
         }
     }
-
 
     /// Allows a function to modify the contents of any cell that overlaps a rectangle.
     /// Rectangles are only allowed to be as big as the cell size. Bigger rects will
