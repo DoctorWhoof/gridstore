@@ -5,6 +5,17 @@
 
 #![no_std]
 
+use libm::floorf;
+
+mod iter;
+pub use iter::*;
+
+mod iter_with_coords;
+pub use iter_with_coords::*;
+
+#[cfg(test)]
+mod test;
+
 #[derive(Debug)]
 pub struct Grid<const COLS: usize, const ROWS: usize, V> {
     // Dimensions
@@ -111,10 +122,9 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         self.height - self.offset_x
     }
 
-
-    /// Returns an optional reference to the content of a cell containing the
-    /// provided coordinates, if any.
-    pub fn get_cell(&self, x: f32, y: f32) -> Option<&V> {
+    /// Returns an optional tuple with the current coordinates in the (column, row) format, given
+    /// x and y "physical" coordinates.
+    pub fn get_cell_coords(&self, x: f32, y: f32) -> Option<(usize, usize)> {
         let x = x + self.offset_x;
         if x < 0.0 {
             return None;
@@ -125,23 +135,21 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         }
         let col = libm::floorf(x / self.cell_width) as usize;
         let row = libm::floorf(y / self.cell_height) as usize;
-        self.get_cell_by_indices(col, row)
+        Some((col, row))
+    }
+
+    /// Returns an optional reference to the content of a cell containing the
+    /// provided coordinates, if any.
+    pub fn get_cell(&self, x: f32, y: f32) -> Option<&V> {
+        let coords = self.get_cell_coords(x, y)?;
+        self.get_cell_by_indices(coords.0, coords.1)
     }
 
     /// Returns an optional mutable reference to the content of a cell containing the
     /// provided coordinates, if any.
     pub fn get_cell_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
-        let x = x + self.offset_x;
-        if x < 0.0 {
-            return None;
-        }
-        let y = y + self.offset_y;
-        if y < 0.0 {
-            return None;
-        }
-        let col = libm::floorf(x / self.cell_width) as usize;
-        let row = libm::floorf(y / self.cell_height) as usize;
-        self.get_cell_by_indices_mut(col, row)
+        let coords = self.get_cell_coords(x, y)?;
+        self.get_cell_by_indices_mut(coords.0, coords.1)
     }
 
     /// Returns an optional reference to the content of a cell in the
@@ -160,20 +168,6 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         Some(cell)
     }
 
-    // /// Allows a single function to modify the contents of all cells.
-    // /// The function will take a mutable reference to the cell contents, the current
-    // /// Column index and the current Row index.
-    // pub fn modify_all<F>(&mut self, mut func: F)
-    // where
-    //     F: FnMut(&mut V, usize, usize),
-    // {
-    //     for (col_index, col) in &mut self.data.iter_mut().enumerate() {
-    //         for (row_index, cell) in col.iter_mut().enumerate() {
-    //             func(cell, col_index, row_index)
-    //         }
-    //     }
-    // }
-
     /// Allows a single function to modify the contents of all cells.
     /// The function will take a mutable reference to the cell contents
     pub fn modify_all<F>(&mut self, mut func: F)
@@ -187,140 +181,86 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         }
     }
 
+    fn get_edges(
+        &self,
+        left: f32,
+        bottom: f32,
+        right: f32,
+        top: f32,
+    ) -> (usize, usize, usize, usize) {
+        // Apply offsets
+        let left = left + self.offset_x;
+        let bottom = bottom + self.offset_y;
+        let right = right + self.offset_x;
+        let top = top + self.offset_y;
+        // Get columns and rows
+        //
+        let col_left = floorf(left / self.cell_width).max(0.0) as usize;
+        let row_bottom = floorf(bottom / self.cell_height).max(0.0) as usize;
+
+        let max_right = self.data.len() - 1;
+        let col_right = (floorf(right / self.cell_width) as usize).min(max_right);
+
+        let max_top = self.data[0].len() - 1;
+        let row_top = (floorf(top / self.cell_height) as usize).min(max_top);
+        (col_left, row_bottom, col_right, row_top)
+    }
+
+    /// Gets an iterator over the cells overlapping a rectangle, starting at the bottom/left corner
+    /// and moving all the way to the top/right corner.
+    pub fn iter_cells_in_rect(
+        &self,
+        left: f32,
+        bottom: f32,
+        right: f32,
+        top: f32,
+        y_up: bool,
+    ) -> IterGridRect<'_, COLS, ROWS, V> {
+        let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
+        // Create and return the iterator with calculated bounds
+        // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
+        IterGridRect {
+            y_up,
+            grid: self,
+            left: col_left,
+            right: col_right,
+            top: row_top,
+            bottom: row_bottom,
+            current_row: if y_up { row_bottom } else { row_top },
+            current_col: col_left,
+            done: false,
+        }
+    }
+
     /// Allows a function to modify the contents of any cell that overlaps a rectangle.
     /// Rectangles are only allowed to be as big as the cell size. Bigger rects will
     /// fail an assert in Debug builds, and do nothing in release builds. This may change to a result
     /// in the future.
-    pub fn modify_in_rect<F>(&mut self, top: f32, left: f32, bottom: f32, right: f32, mut func: F)
+    pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
     where
         F: FnMut(&mut V),
     {
-        // Apply offsets
-        let left = left + self.offset_x;
-        let right = right + self.offset_x;
-        let top = top + self.offset_y;
-        let bottom = bottom + self.offset_y;
-        // Validate
-        if !self.validate_rect(top, left, bottom, right) {
-            return;
-        };
-        // Get columns and ROWS
-        let col_1 = (left / self.cell_width) as usize;
-        let col_2 = (right / self.cell_width) as usize;
-        let row_1 = (top / self.cell_height) as usize;
-        let row_2 = (bottom / self.cell_height) as usize;
+        let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
         // Modify (if needed)!
-        if row_1 != row_2 {
-            let value = &mut self.data[col_1][row_2];
+        if row_bottom != row_top {
+            let value = &mut self.data[col_left][row_top];
             func(value);
         }
-        if col_1 != col_2 {
-            let value = &mut self.data[col_2][row_1];
+        if col_left != col_right {
+            let value = &mut self.data[col_right][row_bottom];
             func(value);
-            if row_1 != row_2 {
-                let value = &mut self.data[col_2][row_2];
+            if row_bottom != row_top {
+                let value = &mut self.data[col_right][row_top];
                 func(value);
             }
         }
 
-        let value = &mut self.data[col_1][row_1];
+        let value = &mut self.data[col_left][row_bottom];
         func(value);
     }
 
     /// Returns a reference to the underlying data. Be careful!
     pub fn raw_data(&mut self) -> &mut [[V; ROWS]; COLS] {
         &mut self.data
-    }
-
-    #[inline(always)]
-    fn validate_rect(&self, top: f32, left: f32, bottom: f32, right: f32) -> bool {
-        let w = right - left;
-        let h = top - bottom;
-        // In Debug build an invalid rect is an error.
-        // TODO: May be removed later, always return result instead
-        #[cfg(debug_assertions)]
-        {
-            assert!(w >= 0.0, err!("rect width must be positive"));
-            assert!(
-                w < self.cell_width,
-                err!("rect width larger than cell width")
-            );
-            assert!(h >= 0.0, err!("rect height must be positive"));
-            assert!(
-                h < self.cell_height,
-                err!("rect height larger than cell height")
-            );
-        }
-        // In Release build an invalid rect returns false
-        if w < 0.0 || w > self.cell_width {
-            return false;
-        }
-        if h < 0.0 || h > self.cell_height {
-            return false;
-        }
-        true
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::Grid;
-    use rand::Rng;
-
-    extern crate alloc;
-    use alloc::vec::Vec;
-
-    #[test]
-    fn grid_basic() {
-        let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, false);
-        let mut rng = rand::thread_rng();
-        for _n in 0..100 {
-            let x = rng.gen_range(0.0..100.0);
-            let y = rng.gen_range(0.0..100.0);
-            if let Some(container) = grid.get_cell_mut(x, y) {
-                container.push((x, y));
-            };
-        }
-
-        for (i_x, col) in grid.data.iter().enumerate() {
-            for (i_y, cell) in col.iter().enumerate() {
-                if cell.is_empty() {
-                    continue;
-                }
-                for value in cell {
-                    assert_eq!((value.0 / grid.cell_width).floor() as usize, i_x);
-                    assert_eq!((value.1 / grid.cell_height).floor() as usize, i_y);
-                }
-                // println!("{},{} -> {:.1?}", i_x, i_y, cell.data)
-            }
-        }
-    }
-
-    #[test]
-    fn grid_negative_values() {
-        let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, true);
-        let mut rng = rand::thread_rng();
-        for _n in 0..100 {
-            let x = rng.gen_range(grid.left()..grid.right());
-            let y = rng.gen_range(grid.bottom()..grid.top());
-            if let Some(container) = grid.get_cell_mut(x, y) {
-                container.push((x, y));
-            };
-        }
-
-        for (i_x, col) in grid.data.iter().enumerate() {
-            for (i_y, cell) in col.iter().enumerate() {
-                if cell.is_empty() {
-                    continue;
-                }
-                // println!("{},{} -> {:.1?}", i_x, i_y, cell);
-                for value in cell {
-                    let col = ((value.0 + grid.offset_x) / grid.cell_width).floor() as usize;
-                    let row = ((value.1 + grid.offset_y) / grid.cell_height).floor() as usize;
-                    assert_eq!(col, i_x);
-                    assert_eq!(row, i_y);
-                }
-            }
-        }
     }
 }
