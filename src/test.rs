@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 #[test]
 fn grid_basic() {
-    let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, false);
+    let mut grid = Grid::<Vec<(f32, f32)>>::new(100.0, 100.0, 10, 10, false);
     let mut rng = rand::thread_rng();
     for _n in 0..100 {
         let x = rng.gen_range(0.0..100.0);
@@ -32,7 +32,7 @@ fn grid_basic() {
 
 #[test]
 fn grid_negative_values() {
-    let mut grid = Grid::<10, 10, Vec<(f32, f32)>>::new(100.0, 100.0, true);
+    let mut grid = Grid::<Vec<(f32, f32)>>::new(100.0, 100.0, 10, 10, true);
     let mut rng = rand::thread_rng();
     for _n in 0..100 {
         let x = rng.gen_range(grid.left()..grid.right());
@@ -60,7 +60,7 @@ fn grid_negative_values() {
 
 #[test]
 fn iter_y_up() {
-    let mut grid = Grid::<10, 10, usize>::new(100.0, 100.0, false);
+    let mut grid = Grid::<usize>::new(100.0, 100.0, 10, 10, false);
     for row in 0..10 {
         for col in 0..10 {
             let x = col as f32 * grid.cell_width;
@@ -71,27 +71,34 @@ fn iter_y_up() {
         }
     }
 
-    for (i, cell) in grid.iter_cells_in_rect(0.0, 0.0, 100.0, 100.0, true).enumerate(){
+    for (i, cell) in grid
+        .iter_cells_in_rect(0.0, 0.0, 100.0, 100.0, true)
+        .enumerate()
+    {
         assert_eq!(i, *cell);
     }
 }
 
 #[test]
 fn iter_y_down() {
-    let mut grid = Grid::<10, 10, usize>::new(100.0, 100.0, false);
+    let mut grid = Grid::<usize>::new(100.0, 100.0, 10, 10, false);
     for row in 0..10 {
         for col in 0..10 {
             let x = col as f32 * grid.cell_width;
             let y = (9 - row) as f32 * grid.cell_height;
+            // print!("{}, {} -> ", x, y);
             if let Some(cell) = grid.get_cell_mut(x, y) {
                 *cell = (row * 10) + col;
-            };
+                // println!("{}", *cell);
+            } else {
+                // println!("None");
+            }
         }
     }
 
     let iter = grid.iter_cells_in_rect(0.0, 0.0, 100.0, 100.0, false);
     // println!("{:#?}", iter);
-    for (i, cell) in iter.enumerate(){
+    for (i, cell) in iter.enumerate() {
         // println!("{}", i);
         assert_eq!(i, *cell);
     }

@@ -2,9 +2,9 @@ use super::*;
 
 /// Iterator that yields references to cells in the grid overlapping with a specified rectangle.
 #[derive(Debug)]
-pub struct IterGridRect<'a, const COLS: usize, const ROWS: usize, V> {
+pub struct IterGridRect<'a, V> {
     pub(super) y_up: bool,
-    pub(super) grid: &'a Grid<COLS, ROWS, V>,
+    pub(super) grid: &'a Grid<V>,
     pub(super) top: usize,
     pub(super) bottom: usize,
     pub(super) left: usize,
@@ -14,7 +14,7 @@ pub struct IterGridRect<'a, const COLS: usize, const ROWS: usize, V> {
     pub(super) done: bool,
 }
 
-impl<'a, const COLS: usize, const ROWS: usize, V> Iterator for IterGridRect<'a, COLS, ROWS, V> {
+impl<'a, V> Iterator for IterGridRect<'a, V> {
     type Item = &'a V;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -37,9 +37,9 @@ impl<'a, const COLS: usize, const ROWS: usize, V> Iterator for IterGridRect<'a, 
     }
 }
 
-impl<'a, const COLS: usize, const ROWS: usize, V> IterGridRect<'a, COLS, ROWS, V> {
+impl<'a, V> IterGridRect<'a, V> {
     /// Returns an iterator that enumerates each cell with its coordinates (value, column, row).
-    pub fn enumerate_coords(self) -> IterWithCoords<'a, COLS, ROWS, V> {
+    pub fn enumerate_coords(self) -> IterWithCoords<'a, V> {
         let current_col = self.current_col;
         let current_row = self.current_row;
         IterWithCoords {

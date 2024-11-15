@@ -2,14 +2,14 @@ use super::*;
 
 /// Iterator that yields (value, column, row) tuples from `IterGridRect`.
 #[derive(Debug)]
-pub struct IterWithCoords<'a, const COLS: usize, const ROWS: usize, V> {
-    pub(super) iter: IterGridRect<'a, COLS, ROWS, V>,
+pub struct IterWithCoords<'a, V> {
+    pub(super) iter: IterGridRect<'a, V>,
     pub(super) current_col: usize,
     pub(super) current_row: usize,
 }
 
 
-impl<'a, const COLS: usize, const ROWS: usize, V> Iterator for IterWithCoords<'a, COLS, ROWS, V> {
+impl<'a, V> Iterator for IterWithCoords<'a, V> {
     type Item = (&'a V, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -16,18 +16,23 @@ pub use iter_with_coords::*;
 #[cfg(test)]
 mod test;
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 #[derive(Debug)]
-pub struct Grid<const COLS: usize, const ROWS: usize, V> {
+pub struct Grid<V> {
     // Dimensions
     width: f32,
     height: f32,
     cell_width: f32,
     cell_height: f32,
+    columns: usize,
+    rows: usize,
     //Pivot
     offset_x: f32,
     offset_y: f32,
     // Storage
-    data: [[V; ROWS]; COLS],
+    data: Vec<Vec<V>>,
 }
 
 // Standard Error message helper
@@ -38,36 +43,48 @@ macro_rules! err {
 }
 
 // Default implementation always needs "width" and "height" provided.
-impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V>
+impl<V> Grid<V>
 where
     V: Default,
 {
-    pub fn new(width: f32, height: f32, centered: bool) -> Self {
-        Self::new_with(width, height, centered, || Default::default())
+    pub fn new(width: f32, height: f32, columns: usize, rows: usize, centered: bool) -> Self {
+        Self::new_with(width, height, columns, rows, centered, || {
+            Default::default()
+        })
     }
 }
 
 // Unconstrained implementation.
-impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
+impl<V> Grid<V> {
     /// Returns a Grid pre-filled with the result of function "func"
-    pub fn new_with<F>(width: f32, height: f32, centered: bool, mut func: F) -> Self
+    pub fn new_with<F>(
+        width: f32,
+        height: f32,
+        columns: usize,
+        rows: usize,
+        centered: bool,
+        mut func: F,
+    ) -> Self
     where
         F: FnMut() -> V,
     {
-        use core::array::from_fn;
-        assert!(width >= 0.0, err!("Width must be positive"));
-        assert!(height >= 0.0, err!("Height must be positive"));
-        let cell_width = width / COLS as f32;
-        let cell_height = height / ROWS as f32;
+        assert!(width >= 0.0, err!("Width must be > 0.0"));
+        assert!(height >= 0.0, err!("Height must > 0.0"));
+        let cell_width = width / columns as f32;
+        let cell_height = height / rows as f32;
 
         Self {
             width,
             height,
             cell_width,
             cell_height,
+            columns,
+            rows,
             offset_x: if centered { width / 2.0 } else { 0.0 },
             offset_y: if centered { height / 2.0 } else { 0.0 },
-            data: from_fn(|_col| from_fn(|_row| func())),
+            data: (0..columns)
+                .map(|_| (0..rows).map(|_| func()).collect())
+                .collect(),
         }
     }
 
@@ -93,12 +110,12 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
 
     /// Total number of columns.
     pub fn columns(&self) -> usize {
-        COLS
+        self.columns
     }
 
     /// Total number of rows.
     pub fn rows(&self) -> usize {
-        ROWS
+        self.rows
     }
 
     /// The left-most edge occupied by the Grid. This is the Y origin if grid is not centered.
@@ -120,6 +137,16 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
     /// The top-most edge occupied by the Grid. WARNING, coordinates are Y up (positive values go up).
     pub fn top(&self) -> f32 {
         self.height - self.offset_x
+    }
+
+    /// The horizontal offset if the center is not at (0.0, 0.0)
+    pub fn offset_x(&self) -> f32 {
+        self.offset_x
+    }
+
+    /// The vertical offset if the center is not at (0.0, 0.0)
+    pub fn offset_y(&self) -> f32 {
+        self.offset_y
     }
 
     /// Returns an optional tuple with the current coordinates in the (column, row) format, given
@@ -206,8 +233,9 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         (col_left, row_bottom, col_right, row_top)
     }
 
-    /// Gets an iterator over the cells overlapping a rectangle, starting at the bottom/left corner
-    /// and moving all the way to the top/right corner.
+    /// Returns an iterator with the cells overlapping a rectangle, starting at the
+    /// bottom/left corner and moving all the way to the top/right corner if y_up is "true",
+    /// and from top to bottom if y_up is "false".
     pub fn iter_cells_in_rect(
         &self,
         left: f32,
@@ -215,7 +243,7 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         right: f32,
         top: f32,
         y_up: bool,
-    ) -> IterGridRect<'_, COLS, ROWS, V> {
+    ) -> IterGridRect<'_, V> {
         let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
         // Create and return the iterator with calculated bounds
         // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
@@ -233,9 +261,6 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
     }
 
     /// Allows a function to modify the contents of any cell that overlaps a rectangle.
-    /// Rectangles are only allowed to be as big as the cell size. Bigger rects will
-    /// fail an assert in Debug builds, and do nothing in release builds. This may change to a result
-    /// in the future.
     pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
     where
         F: FnMut(&mut V),
@@ -259,8 +284,8 @@ impl<const COLS: usize, const ROWS: usize, V> Grid<COLS, ROWS, V> {
         func(value);
     }
 
-    /// Returns a reference to the underlying data. Be careful!
-    pub fn raw_data(&mut self) -> &mut [[V; ROWS]; COLS] {
+    /// Returns a reference to the underlying data. Be careful and don't resize it!
+    pub fn raw_data(&mut self) -> &mut Vec<Vec<V>> {
         &mut self.data
     }
 }
