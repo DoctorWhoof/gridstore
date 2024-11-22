@@ -72,7 +72,7 @@ fn iter_y_up() {
     }
 
     for (i, cell) in grid
-        .iter_cells_in_rect(0.0, 0.0, 100.0, 100.0, true)
+        .iter_cells_in_rect(0.0, 0.0, 100.0, 100.0)
         .enumerate()
     {
         assert_eq!(i, *cell);
@@ -96,10 +96,28 @@ fn iter_y_down() {
         }
     }
 
-    let iter = grid.iter_cells_in_rect(0.0, 0.0, 100.0, 100.0, false);
+    let iter = grid.iter_cells_in_rect(0.0, 0.0, 100.0, 100.0).y_down();
     // println!("{:#?}", iter);
     for (i, cell) in iter.enumerate() {
         // println!("{}", i);
         assert_eq!(i, *cell);
+    }
+}
+
+#[test]
+fn iter_coords(){
+    let grid = Grid::<(usize,usize)>::new(100.0, 100.0, 10, 10, false);
+    for (col,row) in grid.iter_coords(25.0, 35.0, 65.0, 115.0) {
+        // println!("{},{}", col, row);
+        assert!(col > 1 && col < 7);
+        assert!(row > 2 && row < 10);
+    }
+
+    // println!("y down...");
+    let grid = Grid::<(usize,usize)>::new(100.0, 100.0, 10, 10, false);
+    for (col,row) in grid.iter_coords(25.0, 35.0, 65.0, 115.0).y_down() {
+        // println!("{},{}", col, row);
+        assert!(col > 1 && col < 7);
+        assert!(row > 2 && row < 10);
     }
 }

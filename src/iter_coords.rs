@@ -1,10 +1,8 @@
-use super::*;
-
-/// Iterator that yields references to cells in the grid overlapping with a specified rectangle.
-#[derive(Debug)]
-pub struct IterGridRect<'a, V> {
+/// Iterator that yields (column,row) pairs for each cell that overlaps the provided
+/// rectangle edges.
+#[derive(Debug, Clone)]
+pub struct IterCoords {
     pub(super) y_up: bool,
-    pub(super) grid: &'a Grid<V>,
     pub(super) top: usize,
     pub(super) bottom: usize,
     pub(super) left: usize,
@@ -14,35 +12,27 @@ pub struct IterGridRect<'a, V> {
     pub(super) done: bool,
 }
 
-impl<'a, V> Iterator for IterGridRect<'a, V> {
-    type Item = &'a V;
+impl Iterator for IterCoords {
+    type Item = (usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.done == true {
                 break;
             }
-            if let Some(col) = self.grid.data.get(self.current_col) {
-                if let Some(cell) = col.get(self.current_row) {
-                    self.advance();
-                    return Some(cell);
-                } else {
-                    break;
-                }
-            } else {
-                self.advance();
-            }
+            let result = (self.current_col, self.current_row);
+            self.advance();
+            return Some(result);
         }
         None
     }
 }
 
-impl<'a, V> IterGridRect<'a, V> {
-    /// Inverts Y iteration direction
+impl IterCoords {
     pub fn y_down(self) -> Self {
         assert_eq!(
             self.current_row, self.bottom,
-            "IterGridRect: Error, 'y_down()' can only be used on freshly created Iterator."
+            "IterCoords: Error, 'y_down()' can only be used on freshly created Iterator."
         );
         let top = self.top;
         Self {
@@ -52,19 +42,7 @@ impl<'a, V> IterGridRect<'a, V> {
         }
     }
 
-
-    /// Returns an iterator that enumerates each cell with its coordinates (value, column, row).
-    pub fn enumerate_coords(self) -> IterWithCoords<'a, V> {
-        let current_col = self.current_col;
-        let current_row = self.current_row;
-        IterWithCoords {
-            iter: self,
-            current_col,
-            current_row,
-        }
-    }
-
-    pub fn advance(&mut self) {
+    fn advance(&mut self) {
         // Advance column
         self.current_col += 1;
         // Wrap around to the next row if necessary

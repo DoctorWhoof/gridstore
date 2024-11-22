@@ -10,6 +10,9 @@ use libm::floorf;
 mod iter;
 pub use iter::*;
 
+mod iter_coords;
+pub use iter_coords::*;
+
 mod iter_with_coords;
 pub use iter_with_coords::*;
 
@@ -242,25 +245,58 @@ impl<V> Grid<V> {
         bottom: f32,
         right: f32,
         top: f32,
-        y_up: bool,
     ) -> IterGridRect<'_, V> {
         let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
         // Create and return the iterator with calculated bounds
         // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
         IterGridRect {
-            y_up,
+            y_up: true,
             grid: self,
             left: col_left,
             right: col_right,
             top: row_top,
             bottom: row_bottom,
-            current_row: if y_up { row_bottom } else { row_top },
+            current_row: row_bottom,
+            current_col: col_left,
+            done: false,
+        }
+    }
+
+    /// Returns an iterator with all cells.
+    pub fn iter_all_cells(&self) -> IterGridRect<'_, V> {
+        // Create and return the iterator with calculated bounds
+        // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
+        IterGridRect {
+            y_up: true,
+            grid: self,
+            left: 0,
+            right: self.columns()-1,
+            top: self.rows()-1,
+            bottom: 0,
+            current_row: 0,
+            current_col: 0,
+            done: false,
+        }
+    }
+
+    /// Returns an iterator that yields (column,row) pairs for each cell that overlaps the provided
+    /// rectangle edges.
+    pub fn iter_coords(&self, left: f32, bottom: f32, right: f32, top: f32) -> IterCoords {
+        let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
+        IterCoords {
+            y_up: true,
+            top: row_top,
+            bottom: row_bottom,
+            left: col_left,
+            right: col_right,
+            current_row: row_bottom,
             current_col: col_left,
             done: false,
         }
     }
 
     /// Allows a function to modify the contents of any cell that overlaps a rectangle.
+    /// TODO: Update to use iter_coords so that all overlapping cells are considered
     pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
     where
         F: FnMut(&mut V),
@@ -284,8 +320,13 @@ impl<V> Grid<V> {
         func(value);
     }
 
+    /// Returns a reference to the underlying data.
+    pub fn raw_data(&self) -> &Vec<Vec<V>> {
+        &self.data
+    }
+
     /// Returns a reference to the underlying data. Be careful and don't resize it!
-    pub fn raw_data(&mut self) -> &mut Vec<Vec<V>> {
+    pub fn raw_data_mut(&mut self) -> &mut Vec<Vec<V>> {
         &mut self.data
     }
 }
