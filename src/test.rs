@@ -71,10 +71,7 @@ fn iter_y_up() {
         }
     }
 
-    for (i, cell) in grid
-        .iter_cells_in_rect(0.0, 0.0, 100.0, 100.0)
-        .enumerate()
-    {
+    for (i, cell) in grid.iter_cells_in_rect(0.0, 0.0, 100.0, 100.0).enumerate() {
         assert_eq!(i, *cell);
     }
 }
@@ -105,19 +102,101 @@ fn iter_y_down() {
 }
 
 #[test]
-fn iter_coords(){
-    let grid = Grid::<(usize,usize)>::new(100.0, 100.0, 10, 10, false);
-    for (col,row) in grid.iter_coords(25.0, 35.0, 65.0, 115.0) {
+fn iter_coords() {
+    let grid = Grid::<(usize, usize)>::new(100.0, 100.0, 10, 10, false);
+    for (col, row) in grid.iter_coords_in_rect(25.0, 35.0, 65.0, 115.0) {
         // println!("{},{}", col, row);
         assert!(col > 1 && col < 7);
         assert!(row > 2 && row < 10);
     }
 
     // println!("y down...");
-    let grid = Grid::<(usize,usize)>::new(100.0, 100.0, 10, 10, false);
-    for (col,row) in grid.iter_coords(25.0, 35.0, 65.0, 115.0).y_down() {
+    let grid = Grid::<(usize, usize)>::new(100.0, 100.0, 10, 10, false);
+    for (col, row) in grid.iter_coords_in_rect(25.0, 35.0, 65.0, 115.0).y_down() {
         // println!("{},{}", col, row);
         assert!(col > 1 && col < 7);
         assert!(row > 2 && row < 10);
     }
+}
+
+#[test]
+fn grid_resize() {
+    // Pivot at lower left corner
+    let mut grid = Grid::<(usize, usize)>::new(100.0, 100.0, 10, 10, false);
+    for col in 0..grid.columns() {
+        for row in 0..grid.rows() {
+            if let Some(cell) = grid.get_cell_by_indices_mut(col, row) {
+                *cell = (col, row);
+            };
+        }
+    }
+
+    grid.set_size(1000.0, 200.0);
+    assert_eq!(grid.width, 1000.0);
+    assert_eq!(grid.height, 200.0);
+    assert_eq!(grid.cell_width, 100.0);
+    assert_eq!(grid.cell_height, 20.0);
+    assert_eq!(grid.offset_x, 0.0);
+    assert_eq!(grid.offset_y, 0.0);
+
+    let iter = grid.iter_coords_in_rect(150.0, 50.0, 300.0, 150.0);
+    for coords in iter {
+        let value = grid.get_cell_by_indices(coords.0, coords.1);
+        // println!("{:?} -> {:?}", coords, value );
+        assert_eq!(Some(&coords), value);
+    }
+
+    // Centered Pivot
+    let mut grid = Grid::<(usize, usize)>::new(100.0, 100.0, 10, 10, true);
+    for col in 0..grid.columns() {
+        for row in 0..grid.rows() {
+            if let Some(cell) = grid.get_cell_by_indices_mut(col, row) {
+                *cell = (col, row);
+            };
+        }
+    }
+
+    grid.set_size(1000.0, 200.0);
+    assert_eq!(grid.width, 1000.0);
+    assert_eq!(grid.height, 200.0);
+    assert_eq!(grid.cell_width, 100.0);
+    assert_eq!(grid.cell_height, 20.0);
+    assert_eq!(grid.offset_x, 500.0);
+    assert_eq!(grid.offset_y, 100.0);
+
+    let iter = grid.iter_coords_in_rect(150.0, 50.0, 300.0, 150.0);
+    for coords in iter {
+        let value = grid.get_cell_by_indices(coords.0, coords.1);
+        // println!("{:?} -> {:?}", coords, value );
+        assert_eq!(Some(&coords), value);
+    }
+}
+
+#[test]
+fn outside_area(){
+    let mut grid = Grid::<(usize, usize)>::new(100.0, 100.0, 10, 10, false);
+    for col in 0..grid.columns() {
+        for row in 0..grid.rows() {
+            if let Some(cell) = grid.get_cell_by_indices_mut(col, row) {
+                *cell = (col, row);
+            };
+        }
+    }
+
+    let a = grid.get_cell(-10.0, 20.0);
+    assert_eq!(a, None);
+
+    let b = grid.get_cell(10.0, 200.0);
+    assert_eq!(b, None);
+
+    let c = grid.get_cell(15.0, 15.0);
+    assert_eq!(c, Some(&(1,1)));
+
+    let mut iter = grid.iter_cells_in_rect(-25.0, -25.0, 5.0, 5.0);
+    assert_eq!(iter.next(), Some(&(0,0))); // Only the left-bottom cell will be included
+    assert_eq!(iter.next(), None);
+
+    let mut iter = grid.iter_cells_in_rect(95.0, 95.0, 125.0, 125.0);
+    assert_eq!(iter.next(), Some(&(9,9))); // Only the right-top cell will be included
+    assert_eq!(iter.next(), None);
 }

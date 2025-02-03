@@ -56,6 +56,17 @@ where
         })
     }
 }
+impl<V> Clone for Grid<V>
+where
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            ..*self
+        }
+    }
+}
 
 // Unconstrained implementation.
 impl<V> Grid<V> {
@@ -89,6 +100,18 @@ impl<V> Grid<V> {
                 .map(|_| (0..rows).map(|_| func()).collect())
                 .collect(),
         }
+    }
+
+    /// Sets the physical size
+    pub fn set_size(&mut self, w: f32, h: f32) {
+        let pivot_x = self.offset_x / self.width;
+        let pivot_y = self.offset_y / self.height;
+        self.width = w;
+        self.height = h;
+        self.cell_width = w / self.columns as f32;
+        self.cell_height = h / self.rows as f32;
+        self.offset_x = w * pivot_x;
+        self.offset_y = h * pivot_y;
     }
 
     /// Physical width.
@@ -139,7 +162,7 @@ impl<V> Grid<V> {
 
     /// The top-most edge occupied by the Grid. WARNING, coordinates are Y up (positive values go up).
     pub fn top(&self) -> f32 {
-        self.height - self.offset_x
+        self.height - self.offset_y
     }
 
     /// The horizontal offset if the center is not at (0.0, 0.0)
@@ -198,19 +221,6 @@ impl<V> Grid<V> {
         Some(cell)
     }
 
-    /// Allows a single function to modify the contents of all cells.
-    /// The function will take a mutable reference to the cell contents
-    pub fn modify_all<F>(&mut self, mut func: F)
-    where
-        F: FnMut(&mut V),
-    {
-        for col in &mut self.data {
-            for cell in col {
-                func(cell)
-            }
-        }
-    }
-
     fn get_edges(
         &self,
         left: f32,
@@ -224,14 +234,12 @@ impl<V> Grid<V> {
         let right = right + self.offset_x;
         let top = top + self.offset_y;
         // Get columns and rows
-        //
-        let col_left = floorf(left / self.cell_width).max(0.0) as usize;
-        let row_bottom = floorf(bottom / self.cell_height).max(0.0) as usize;
-
-        let max_right = self.data.len() - 1;
+        let max_right = self.columns() - 1;
+        let col_left = (floorf(left / self.cell_width).max(0.0) as usize).min(max_right);
         let col_right = (floorf(right / self.cell_width) as usize).min(max_right);
 
-        let max_top = self.data[0].len() - 1;
+        let max_top = self.rows() - 1;
+        let row_bottom = (floorf(bottom / self.cell_height).max(0.0) as usize).min(max_top);
         let row_top = (floorf(top / self.cell_height) as usize).min(max_top);
         (col_left, row_bottom, col_right, row_top)
     }
@@ -262,26 +270,9 @@ impl<V> Grid<V> {
         }
     }
 
-    /// Returns an iterator with all cells.
-    pub fn iter_all_cells(&self) -> IterGridRect<'_, V> {
-        // Create and return the iterator with calculated bounds
-        // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
-        IterGridRect {
-            y_up: true,
-            grid: self,
-            left: 0,
-            right: self.columns()-1,
-            top: self.rows()-1,
-            bottom: 0,
-            current_row: 0,
-            current_col: 0,
-            done: false,
-        }
-    }
-
     /// Returns an iterator that yields (column,row) pairs for each cell that overlaps the provided
     /// rectangle edges.
-    pub fn iter_coords(&self, left: f32, bottom: f32, right: f32, top: f32) -> IterCoords {
+    pub fn iter_coords_in_rect(&self, left: f32, bottom: f32, right: f32, top: f32) -> IterCoords {
         let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
         IterCoords {
             y_up: true,
@@ -295,29 +286,64 @@ impl<V> Grid<V> {
         }
     }
 
-    /// Allows a function to modify the contents of any cell that overlaps a rectangle.
-    /// TODO: Update to use iter_coords so that all overlapping cells are considered
-    pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
+    /// Returns an iterator that yields (column,row) pairs for each cell that overlaps the provided
+    /// rectangle edges.
+    pub fn iter_info_in_rect(&self, left: f32, bottom: f32, right: f32, top: f32) -> IterCoords {
+        let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
+        IterCoords {
+            y_up: true,
+            top: row_top,
+            bottom: row_bottom,
+            left: col_left,
+            right: col_right,
+            current_row: row_bottom,
+            current_col: col_left,
+            done: false,
+        }
+    }
+
+    /// Returns an iterator with all cells.
+    pub fn iter_all_cells(&self) -> IterGridRect<'_, V> {
+        // Create and return the iterator with calculated bounds
+        // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
+        IterGridRect {
+            y_up: true,
+            grid: self,
+            left: 0,
+            right: self.columns() - 1,
+            top: self.rows() - 1,
+            bottom: 0,
+            current_row: 0,
+            current_col: 0,
+            done: false,
+        }
+    }
+
+    /// Allows a single function to modify the contents of all cells.
+    /// The function will take a mutable reference to the cell contents
+    pub fn modify_all<F>(&mut self, mut func: F)
     where
         F: FnMut(&mut V),
     {
-        let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
-        // Modify (if needed)!
-        if row_bottom != row_top {
-            let value = &mut self.data[col_left][row_top];
-            func(value);
-        }
-        if col_left != col_right {
-            let value = &mut self.data[col_right][row_bottom];
-            func(value);
-            if row_bottom != row_top {
-                let value = &mut self.data[col_right][row_top];
-                func(value);
+        for col in &mut self.data {
+            for cell in col {
+                func(cell)
             }
         }
+    }
 
-        let value = &mut self.data[col_left][row_bottom];
-        func(value);
+    /// Allows a closure to modify the contents of any cell that overlaps a given rectangle.
+    /// The closure's arguments are "coords:(usize, usize)", "value:&mut V"
+    pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
+    where
+        F: FnMut((usize, usize), &mut V),
+    {
+        for coords in self.iter_coords_in_rect(left, bottom, right, top) {
+            let Some(cell) = self.get_cell_by_indices_mut(coords.0, coords.1) else {
+                continue;
+            };
+            func(coords, cell);
+        }
     }
 
     /// Returns a reference to the underlying data.
