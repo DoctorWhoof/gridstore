@@ -3,6 +3,7 @@ use super::*;
 /// Iterator that yields references to cells in the grid overlapping with a specified rectangle.
 #[derive(Debug)]
 pub struct IterGridRect<'a, V> {
+    pub(super) layer: usize,
     pub(super) y_up: bool,
     pub(super) grid: &'a Grid<V>,
     pub(super) top: usize,
@@ -22,7 +23,8 @@ impl<'a, V> Iterator for IterGridRect<'a, V> {
             if self.done == true {
                 break;
             }
-            if let Some(col) = self.grid.data.get(self.current_col) {
+            let layer = self.grid.data.get(self.layer)?;
+            if let Some(col) = layer.get(self.current_col) {
                 if let Some(cell) = col.get(self.current_row) {
                     self.advance();
                     return Some(cell);

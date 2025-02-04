@@ -1,7 +1,7 @@
 //! A Rectangular grid of non-overlapping rects containing a single generic item each.
 //! Its dimensions can be centered around (0.0, 0.0) or start at the lower-left corner.
 //! Once created, allows retrieving its contents via physical, f32 coordinates
-//! or directly from colums/row indices.
+//! or directly from colums/row/layer indices.
 
 #![no_std]
 
@@ -20,42 +20,39 @@ pub use iter_with_coords::*;
 mod test;
 
 extern crate alloc;
+use alloc::vec;
 use alloc::vec::Vec;
 
 #[derive(Debug)]
 pub struct Grid<V> {
     // Dimensions
+    pub x: f32,
+    pub y: f32,
     width: f32,
     height: f32,
     cell_width: f32,
     cell_height: f32,
+    // Slots
     columns: usize,
     rows: usize,
-    //Pivot
+    layers: usize,
+    // Pivot. Values are from 0.0 to 1.0
     offset_x: f32,
     offset_y: f32,
     // Storage
-    data: Vec<Vec<V>>,
+    data: Vec<Vec<Vec<V>>>,
 }
 
-// Standard Error message helper
+// Standard Error message helper with colors
 macro_rules! err {
     ($msg:expr) => {
         concat!("\x1b[31m", "Grid Error: ", $msg, "\x1b[0m")
     };
 }
 
-// Default implementation always needs "width" and "height" provided.
-impl<V> Grid<V>
-where
-    V: Default,
-{
-    pub fn new(width: f32, height: f32, columns: usize, rows: usize, centered: bool) -> Self {
-        Self::new_with(width, height, columns, rows, centered, || {
-            Default::default()
-        })
-    }
-}
+// Default implementation
+impl<V> Grid<V> where V: Default {}
+
 impl<V> Clone for Grid<V>
 where
     V: Clone,
@@ -70,48 +67,64 @@ where
 
 // Unconstrained implementation.
 impl<V> Grid<V> {
-    /// Returns a Grid pre-filled with the result of function "func"
-    pub fn new_with<F>(
-        width: f32,
-        height: f32,
-        columns: usize,
-        rows: usize,
-        centered: bool,
-        mut func: F,
-    ) -> Self
+    /// Returns a Grid pre-filled with the result of function "func". It will
+    /// be placed at (0.0, 0.0), with width and height set to 1.0.
+    /// Use [resize] to adjust its physical size, and "[set_pivot]"
+    /// if you want it centered around its position.
+    pub fn new<F>(width:f32, height:f32, columns:usize, rows:usize, layers:usize, mut func: F) -> Self
     where
         F: FnMut() -> V,
     {
-        assert!(width >= 0.0, err!("Width must be > 0.0"));
-        assert!(height >= 0.0, err!("Height must > 0.0"));
-        let cell_width = width / columns as f32;
-        let cell_height = height / rows as f32;
-
+        let mut data: Vec<Vec<Vec<V>>> = Vec::new();
+        for l in 0 .. layers {
+            data.push(vec![]);
+            for x in 0 .. columns {
+                data[l].push(vec![]);
+                for _y in 0 .. rows {
+                    data[l][x].push(func());
+                }
+            }
+        }
+        assert!(width >= 0.0, err!("'width' must be > 0.0"));
+        assert!(height >= 0.0, err!("'height' must be > 0.0"));
+        assert!(columns > 0, err!("'columns' must be > 0"));
+        assert!(rows > 0, err!("'rows' must be > 0"));
+        assert!(layers > 0, err!("'layers' must be > 0"));
         Self {
+            x: 0.0,
+            y: 0.0,
             width,
             height,
-            cell_width,
-            cell_height,
+            cell_width: width / columns as f32,
+            cell_height: height / columns as f32,
             columns,
             rows,
-            offset_x: if centered { width / 2.0 } else { 0.0 },
-            offset_y: if centered { height / 2.0 } else { 0.0 },
-            data: (0..columns)
-                .map(|_| (0..rows).map(|_| func()).collect())
-                .collect(),
+            layers,
+            offset_x: width / 2.0,
+            offset_y: width / 2.0,
+            data,
         }
     }
 
     /// Sets the physical size
-    pub fn set_size(&mut self, w: f32, h: f32) {
-        let pivot_x = self.offset_x / self.width;
-        let pivot_y = self.offset_y / self.height;
-        self.width = w;
-        self.height = h;
-        self.cell_width = w / self.columns as f32;
-        self.cell_height = h / self.rows as f32;
-        self.offset_x = w * pivot_x;
-        self.offset_y = h * pivot_y;
+    pub fn resize(&mut self, width:f32, height:f32) {
+        assert!(width >= 0.0, err!("'width' must be > 0.0"));
+        assert!(height >= 0.0, err!("'height' must be > 0.0"));
+        let current_offset_x = self.offset_x / self.width;
+        let current_offset_y = self.offset_y / self.height;
+        self.width = width;
+        self.height = height;
+        self.cell_width = width / self.columns as f32;
+        self.cell_height = height / self.rows as f32;
+        self.offset_x = current_offset_x * width;
+        self.offset_y = current_offset_y * height;
+    }
+
+    /// Sets the pivot point, in a range from 0.0 (min) to 1.0 (max),
+    /// with 0.5 being centered
+    pub fn set_pivot(&mut self, x:f32, y:f32) {
+        self.offset_x = self.width * x;
+        self.offset_y = self.height * y;
     }
 
     /// Physical width.
@@ -122,6 +135,11 @@ impl<V> Grid<V> {
     /// Physical height.
     pub fn height(&self) -> f32 {
         self.height
+    }
+
+    /// Layer count.
+    pub fn layers(&self) -> usize {
+        self.layers
     }
 
     /// Physical width of each cell.
@@ -146,23 +164,23 @@ impl<V> Grid<V> {
 
     /// The left-most edge occupied by the Grid. This is the Y origin if grid is not centered.
     pub fn left(&self) -> f32 {
-        -self.offset_x
+        self.x - self.offset_x
     }
 
     /// The right-most edge occupied by the Grid.
     pub fn right(&self) -> f32 {
-        self.width - self.offset_x
+        self.x + self.width - self.offset_x
     }
 
     /// The bottom-most edge occupied by the Grid. WARNING, coordinates are Y up
     /// (positive values go up), so this is the Y origin if the grid is not centered.
     pub fn bottom(&self) -> f32 {
-        -self.offset_y
+        self.y - self.offset_y
     }
 
     /// The top-most edge occupied by the Grid. WARNING, coordinates are Y up (positive values go up).
     pub fn top(&self) -> f32 {
-        self.height - self.offset_y
+        self.y + self.height - self.offset_y
     }
 
     /// The horizontal offset if the center is not at (0.0, 0.0)
@@ -193,30 +211,37 @@ impl<V> Grid<V> {
 
     /// Returns an optional reference to the content of a cell containing the
     /// provided coordinates, if any.
-    pub fn get_cell(&self, x: f32, y: f32) -> Option<&V> {
+    pub fn get_cell(&self, x: f32, y: f32, layer: usize) -> Option<&V> {
         let coords = self.get_cell_coords(x, y)?;
-        self.get_cell_by_indices(coords.0, coords.1)
+        self.get_cell_by_indices(coords.0, coords.1, layer)
     }
 
     /// Returns an optional mutable reference to the content of a cell containing the
     /// provided coordinates, if any.
-    pub fn get_cell_mut(&mut self, x: f32, y: f32) -> Option<&mut V> {
+    pub fn get_cell_mut(&mut self, x: f32, y: f32, layer: usize) -> Option<&mut V> {
         let coords = self.get_cell_coords(x, y)?;
-        self.get_cell_by_indices_mut(coords.0, coords.1)
+        self.get_cell_by_indices_mut(coords.0, coords.1, layer)
     }
 
     /// Returns an optional reference to the content of a cell in the
     /// provided coordinates, if any.
-    pub fn get_cell_by_indices(&self, col: usize, row: usize) -> Option<&V> {
-        let col = self.data.get(col)?;
+    pub fn get_cell_by_indices(&self, col: usize, row: usize, layer: usize) -> Option<&V> {
+        let layer = self.data.get(layer)?;
+        let col = layer.get(col)?;
         let cell = col.get(row)?;
         Some(cell)
     }
 
     /// Returns an optional mutable reference to the content of a cell in the
     /// provided coordinates, if any.
-    pub fn get_cell_by_indices_mut(&mut self, col: usize, row: usize) -> Option<&mut V> {
-        let col = self.data.get_mut(col)?;
+    pub fn get_cell_by_indices_mut(
+        &mut self,
+        col: usize,
+        row: usize,
+        layer: usize,
+    ) -> Option<&mut V> {
+        let layer = self.data.get_mut(layer)?;
+        let col = layer.get_mut(col)?;
         let cell = col.get_mut(row)?;
         Some(cell)
     }
@@ -253,11 +278,13 @@ impl<V> Grid<V> {
         bottom: f32,
         right: f32,
         top: f32,
+        layer: usize,
     ) -> IterGridRect<'_, V> {
         let (col_left, row_bottom, col_right, row_top) = self.get_edges(left, bottom, right, top);
         // Create and return the iterator with calculated bounds
         // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
         IterGridRect {
+            layer,
             y_up: true,
             grid: self,
             left: col_left,
@@ -302,21 +329,11 @@ impl<V> Grid<V> {
         }
     }
 
-    /// Returns an iterator with all cells.
-    pub fn iter_all_cells(&self) -> IterGridRect<'_, V> {
-        // Create and return the iterator with calculated bounds
-        // println!("{}, {} -> {}, {}", col_left, row_bottom, col_right, row_top);
-        IterGridRect {
-            y_up: true,
-            grid: self,
-            left: 0,
-            right: self.columns() - 1,
-            top: self.rows() - 1,
-            bottom: 0,
-            current_row: 0,
-            current_col: 0,
-            done: false,
-        }
+    /// Returns an iterator with all cells in all layers.
+    pub fn iter_all_cells(
+        &self,
+    ) -> core::iter::Flatten<core::iter::Flatten<core::slice::Iter<'_, Vec<Vec<V>>>>> {
+        self.data.iter().flatten().flatten()
     }
 
     /// Allows a single function to modify the contents of all cells.
@@ -325,21 +342,30 @@ impl<V> Grid<V> {
     where
         F: FnMut(&mut V),
     {
-        for col in &mut self.data {
-            for cell in col {
-                func(cell)
+        for layer in &mut self.data {
+            for col in layer {
+                for cell in col {
+                    func(cell)
+                }
             }
         }
     }
 
     /// Allows a closure to modify the contents of any cell that overlaps a given rectangle.
     /// The closure's arguments are "coords:(usize, usize)", "value:&mut V"
-    pub fn modify_in_rect<F>(&mut self, left: f32, bottom: f32, right: f32, top: f32, mut func: F)
-    where
+    pub fn modify_in_rect<F>(
+        &mut self,
+        left: f32,
+        bottom: f32,
+        right: f32,
+        top: f32,
+        layer: usize,
+        mut func: F,
+    ) where
         F: FnMut((usize, usize), &mut V),
     {
         for coords in self.iter_coords_in_rect(left, bottom, right, top) {
-            let Some(cell) = self.get_cell_by_indices_mut(coords.0, coords.1) else {
+            let Some(cell) = self.get_cell_by_indices_mut(coords.0, coords.1, layer) else {
                 continue;
             };
             func(coords, cell);
@@ -347,12 +373,12 @@ impl<V> Grid<V> {
     }
 
     /// Returns a reference to the underlying data.
-    pub fn raw_data(&self) -> &Vec<Vec<V>> {
+    pub fn raw_data(&self) -> &Vec<Vec<Vec<V>>> {
         &self.data
     }
 
     /// Returns a reference to the underlying data. Be careful and don't resize it!
-    pub fn raw_data_mut(&mut self) -> &mut Vec<Vec<V>> {
+    pub fn raw_data_mut(&mut self) -> &mut Vec<Vec<Vec<V>>> {
         &mut self.data
     }
 }
