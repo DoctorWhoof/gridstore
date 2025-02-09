@@ -71,16 +71,23 @@ impl<V> Grid<V> {
     /// be placed at (0.0, 0.0), with width and height set to 1.0.
     /// Use [resize] to adjust its physical size, and "[set_pivot]"
     /// if you want it centered around its position.
-    pub fn new<F>(width:f32, height:f32, columns:usize, rows:usize, layers:usize, mut func: F) -> Self
+    pub fn new<F>(
+        width: f32,
+        height: f32,
+        columns: usize,
+        rows: usize,
+        layers: usize,
+        mut func: F,
+    ) -> Self
     where
         F: FnMut() -> V,
     {
         let mut data: Vec<Vec<Vec<V>>> = Vec::new();
-        for l in 0 .. layers {
+        for l in 0..layers {
             data.push(vec![]);
-            for x in 0 .. columns {
+            for x in 0..columns {
                 data[l].push(vec![]);
-                for _y in 0 .. rows {
+                for _y in 0..rows {
                     data[l][x].push(func());
                 }
             }
@@ -107,7 +114,7 @@ impl<V> Grid<V> {
     }
 
     /// Sets the physical size
-    pub fn resize(&mut self, width:f32, height:f32) {
+    pub fn resize(&mut self, width: f32, height: f32) {
         assert!(width >= 0.0, err!("'width' must be > 0.0"));
         assert!(height >= 0.0, err!("'height' must be > 0.0"));
         let current_offset_x = self.offset_x / self.width;
@@ -122,7 +129,7 @@ impl<V> Grid<V> {
 
     /// Sets the pivot point, in a range from 0.0 (min) to 1.0 (max),
     /// with 0.5 being centered
-    pub fn set_pivot(&mut self, x:f32, y:f32) {
+    pub fn set_pivot(&mut self, x: f32, y: f32) {
         self.offset_x = self.width * x;
         self.offset_y = self.height * y;
     }
@@ -196,11 +203,11 @@ impl<V> Grid<V> {
     /// Returns an optional tuple with the current coordinates in the (column, row) format, given
     /// x and y "physical" coordinates.
     pub fn get_cell_coords(&self, x: f32, y: f32) -> Option<(usize, usize)> {
-        let x = x + self.offset_x;
+        let x = x - self.left();
         if x < 0.0 {
             return None;
         }
-        let y = y + self.offset_y;
+        let y = y - self.bottom();
         if y < 0.0 {
             return None;
         }
@@ -325,6 +332,22 @@ impl<V> Grid<V> {
             right: col_right,
             current_row: row_bottom,
             current_col: col_left,
+            done: false,
+        }
+    }
+
+    /// Returns an iterator with all cells in a layer
+    pub fn iter_all_cells_in_layer(&self, layer: usize) -> IterGridRect<'_, V> {
+        IterGridRect {
+            layer,
+            y_up: true,
+            grid: self,
+            left: 0,
+            bottom: 0,
+            right: self.columns() - 1,
+            top: self.rows() - 1,
+            current_row: 0,
+            current_col: 0,
             done: false,
         }
     }
